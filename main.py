@@ -12,7 +12,7 @@ def keep_alive():
     t = Thread(target=run)
     t.start()
 
-TOKEN = '8738009781:AAFaG6aVZzAEoC_HvwoBry_-gFwNp6fhKU8'
+TOKEN = '8738009781:AAFbTfWp9FKs5TJeTVR9JgE_aGtlenUjOUM'
 URL = f'https://api.telegram.org/bot{TOKEN}/'
 PHOTO_PATH = 'my_shkets/' 
 TOTAL_PHOTOS = 20
