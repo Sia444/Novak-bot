@@ -1,10 +1,11 @@
 import requests, time, sqlite3, random, json, os
+from datetime import datetime, timedelta
 from flask import Flask
 from threading import Thread
 
 app = Flask('')
 @app.route('/')
-def home(): return "Новак працює з функцією видалення!"
+def home(): return "Новак працює: полювання раз на годину!"
 
 def run(): app.run(host='0.0.0.0', port=8080)
 def keep_alive():
@@ -18,19 +19,26 @@ TOTAL_PHOTOS = 20
 
 def init_db():
     conn = sqlite3.connect('forest_novaky.db')
+    # Створюємо таблицю з новою колонкою last_hunt
     conn.execute('''CREATE TABLE IF NOT EXISTS novaky 
                       (user_id INTEGER PRIMARY KEY, name TEXT, meat INTEGER, 
                        exp INTEGER, energy INTEGER, last_rest INTEGER, 
-                       is_sleeping INTEGER DEFAULT 0, photo_id INTEGER)''')
+                       is_sleeping INTEGER DEFAULT 0, photo_id INTEGER,
+                       last_hunt INTEGER DEFAULT 0)''')
+    # Перевірка на випадок, якщо таблиця вже була без цієї колонки
+    try:
+        conn.execute("ALTER TABLE novaky ADD COLUMN last_hunt INTEGER DEFAULT 0")
+    except:
+        pass
     conn.commit(); conn.close()
 
 def get_and_refresh_novak(user_id):
     conn = sqlite3.connect('forest_novaky.db')
     cursor = conn.cursor()
-    cursor.execute("SELECT name, meat, exp, energy, last_rest, is_sleeping, photo_id FROM novaky WHERE user_id = ?", (user_id,))
+    cursor.execute("SELECT name, meat, exp, energy, last_rest, is_sleeping, photo_id, last_hunt FROM novaky WHERE user_id = ?", (user_id,))
     row = cursor.fetchone()
     if not row: return None
-    name, meat, exp, energy, last_rest, is_sleeping, photo_id = row
+    name, meat, exp, energy, last_rest, is_sleeping, photo_id, last_hunt = row
     now = int(time.time())
     speed = 100 if is_sleeping else 300
     recovered = (now - last_rest) // speed
@@ -39,7 +47,7 @@ def get_and_refresh_novak(user_id):
         conn.execute("UPDATE novaky SET energy = ?, last_rest = ? WHERE user_id = ?", (energy, now, user_id))
         conn.commit()
     conn.close()
-    return {"name": name, "meat": meat, "exp": exp, "energy": energy, "is_sleeping": is_sleeping, "photo_id": photo_id}
+    return {"name": name, "meat": meat, "exp": exp, "energy": energy, "is_sleeping": is_sleeping, "photo_id": photo_id, "last_hunt": last_hunt}
 
 def send_msg(chat_id, text):
     return requests.post(URL + 'sendMessage', data={'chat_id': chat_id, 'text': text, 'parse_mode': 'Markdown'})
@@ -69,7 +77,7 @@ def main():
                 if text == "/start":
                     if not n:
                         conn = sqlite3.connect('forest_novaky.db')
-                        conn.execute("INSERT INTO novaky VALUES (?,?,?,?,?,?,?,?)", (uid,"Новак",0,0,100,int(time.time()),0,random.randint(1, TOTAL_PHOTOS)))
+                        conn.execute("INSERT INTO novaky VALUES (?,?,?,?,?,?,?,?,?)", (uid,"Новак",0,0,100,int(time.time()),0,random.randint(1, TOTAL_PHOTOS), 0))
                         conn.commit(); conn.close()
                         send_msg(cid, "🌲 Новака знайдено! Напиши 'мій новак'.")
                     else: send_msg(cid, "🐾 У тебе вже є новак!")
@@ -84,14 +92,23 @@ def main():
                         send_msg(cid, "💨 Твого новака відпущено в ліс... Тепер ти можеш знайти нового через /start.")
 
                     elif "полювати" in text:
-                        if n["is_sleeping"]: send_msg(cid, "💤 Твій новак спить! Спочатку розбуди його.")
+                        now = int(time.time())
+                        # Перевірка на 1 годину (3600 секунд)
+                        if now < n["last_hunt"] + 3600:
+                            wait_mins = (n["last_hunt"] + 3600 - now) // 60
+                            send_msg(cid, f"⏳ Новак ще не відпочив! Зачекай {max(1, wait_mins)} хв.")
+                        elif n["is_sleeping"]: send_msg(cid, "💤 Твій новак спить! Спочатку розбуди його.")
                         elif n["energy"] < 20: send_msg(cid, "🪫 Мало енергії (треба хоча б 20).")
                         else:
-                            meat_found = random.randint(1, 3)
+                            # Система двох локацій
+                            loc = random.choice([
+                                {"name": "🌲 Густий ліс", "meat": random.randint(1, 3), "exp": 10},
+                                {"name": "🏚️ Стара ферма", "meat": random.randint(2, 4), "exp": 15}
+                            ])
                             conn = sqlite3.connect('forest_novaky.db')
-                            conn.execute("UPDATE novaky SET meat=meat+?, energy=energy-20, exp=exp+10 WHERE user_id=?", (meat_found, uid))
+                            conn.execute("UPDATE novaky SET meat=meat+?, energy=energy-20, exp=exp+?, last_hunt=? WHERE user_id=?", (loc["meat"], loc["exp"], now, uid))
                             conn.commit(); conn.close()
-                            send_msg(cid, f"🏹 Полювання вдале! Знайдено м'яса: {meat_found} кг. (-20🔋)")
+                            send_msg(cid, f"🏹 Новак пішов у **{loc['name']}**.\nЗнайдено м'яса: {loc['meat']} кг. (+{loc['exp']}✨, -20🔋)")
                     
                     elif "спати" in text:
                         conn = sqlite3.connect('forest_novaky.db')
