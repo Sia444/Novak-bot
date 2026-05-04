@@ -4,7 +4,7 @@ from threading import Thread
 
 app = Flask('')
 @app.route('/')
-def home(): return "Новак працює з новими командами!"
+def home(): return "Новак працює з функцією видалення!"
 
 def run(): app.run(host='0.0.0.0', port=8080)
 def keep_alive():
@@ -77,6 +77,12 @@ def main():
                 elif n:
                     if "мій новак" in text: send_profile(cid, n)
                     
+                    elif "видалити новака" in text:
+                        conn = sqlite3.connect('forest_novaky.db')
+                        conn.execute("DELETE FROM novaky WHERE user_id=?", (uid,))
+                        conn.commit(); conn.close()
+                        send_msg(cid, "💨 Твого новака відпущено в ліс... Тепер ти можеш знайти нового через /start.")
+
                     elif "полювати" in text:
                         if n["is_sleeping"]: send_msg(cid, "💤 Твій новак спить! Спочатку розбуди його.")
                         elif n["energy"] < 20: send_msg(cid, "🪫 Мало енергії (треба хоча б 20).")
@@ -116,4 +122,4 @@ def main():
         except: time.sleep(1)
 
 if __name__ == '__main__': main()
-    
+                        
