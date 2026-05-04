@@ -2,17 +2,15 @@ import requests, time, sqlite3, random, json, os
 from flask import Flask
 from threading import Thread
 
-# Сервер для Render
 app = Flask('')
 @app.route('/')
-def home(): return "Новак працює!"
+def home(): return "Новак працює з новими командами!"
 
 def run(): app.run(host='0.0.0.0', port=8080)
 def keep_alive():
     t = Thread(target=run)
     t.start()
 
-# Налаштування
 TOKEN = '8738009781:AAFaG6aVZzAEoC_HvwoBry_-gFwNp6fhKU8'
 URL = f'https://api.telegram.org/bot{TOKEN}/'
 PHOTO_PATH = 'my_shkets/' 
@@ -43,10 +41,8 @@ def get_and_refresh_novak(user_id):
     conn.close()
     return {"name": name, "meat": meat, "exp": exp, "energy": energy, "is_sleeping": is_sleeping, "photo_id": photo_id}
 
-def send_msg(chat_id, text, markup=None):
-    params = {'chat_id': chat_id, 'text': text, 'parse_mode': 'Markdown'}
-    if markup: params['reply_markup'] = json.dumps(markup)
-    return requests.post(URL + 'sendMessage', data=params)
+def send_msg(chat_id, text):
+    return requests.post(URL + 'sendMessage', data={'chat_id': chat_id, 'text': text, 'parse_mode': 'Markdown'})
 
 def send_profile(chat_id, n):
     status = "💤 Спить" if n["is_sleeping"] else "🌲 Гуляє"
@@ -69,21 +65,55 @@ def main():
                 if "message" not in update or "text" not in update["message"]: continue
                 msg = update["message"]; text = msg["text"].lower(); cid = msg["chat"]["id"]; uid = msg["from"]["id"]
                 n = get_and_refresh_novak(uid)
+                
                 if text == "/start":
                     if not n:
                         conn = sqlite3.connect('forest_novaky.db')
                         conn.execute("INSERT INTO novaky VALUES (?,?,?,?,?,?,?,?)", (uid,"Новак",0,0,100,int(time.time()),0,random.randint(1, TOTAL_PHOTOS)))
                         conn.commit(); conn.close()
-                        send_msg(cid, "🌲 Новака знайдено! Пиши 'мій новак'.")
+                        send_msg(cid, "🌲 Новака знайдено! Напиши 'мій новак'.")
                     else: send_msg(cid, "🐾 У тебе вже є новак!")
+                
                 elif n:
                     if "мій новак" in text: send_profile(cid, n)
+                    
+                    elif "полювати" in text:
+                        if n["is_sleeping"]: send_msg(cid, "💤 Твій новак спить! Спочатку розбуди його.")
+                        elif n["energy"] < 20: send_msg(cid, "🪫 Мало енергії (треба хоча б 20).")
+                        else:
+                            meat_found = random.randint(1, 3)
+                            conn = sqlite3.connect('forest_novaky.db')
+                            conn.execute("UPDATE novaky SET meat=meat+?, energy=energy-20, exp=exp+10 WHERE user_id=?", (meat_found, uid))
+                            conn.commit(); conn.close()
+                            send_msg(cid, f"🏹 Полювання вдале! Знайдено м'яса: {meat_found} кг. (-20🔋)")
+                    
+                    elif "спати" in text:
+                        conn = sqlite3.connect('forest_novaky.db')
+                        conn.execute("UPDATE novaky SET is_sleeping=1, last_rest=? WHERE user_id=?", (int(time.time()), uid))
+                        conn.commit(); conn.close()
+                        send_msg(cid, "💤 Новак влігся спати. Енергія відновлюється швидше!")
+                    
+                    elif "прокинутись" in text:
+                        conn = sqlite3.connect('forest_novaky.db')
+                        conn.execute("UPDATE novaky SET is_sleeping=0, last_rest=? WHERE user_id=?", (int(time.time()), uid))
+                        conn.commit(); conn.close()
+                        send_msg(cid, "☀️ Новак прокинувся і готовий до пригод!")
+                    
+                    elif text.startswith("назви "):
+                        new_name = update["message"]["text"][6:].strip()
+                        if new_name:
+                            conn = sqlite3.connect('forest_novaky.db')
+                            conn.execute("UPDATE novaky SET name=? WHERE user_id=?", (new_name, uid))
+                            conn.commit(); conn.close()
+                            send_msg(cid, f"✨ Тепер твого новака звати **{new_name}**!")
+                    
                     elif "їсти" in text:
                         if n["meat"] > 0:
                             conn = sqlite3.connect('forest_novaky.db')
-                            conn.execute("UPDATE novaky SET meat=meat-1, energy=min(100, energy+5) WHERE user_id=?", (uid,))
-                            conn.commit(); conn.close(); send_msg(cid, "🍴 Поїв! +5🔋")
+                            conn.execute("UPDATE novaky SET meat=meat-1, energy=min(100, energy+15) WHERE user_id=?", (uid,))
+                            conn.commit(); conn.close(); send_msg(cid, "🍴 Смачно! +15🔋")
+                        else: send_msg(cid, "🥩 У тебе немає м'яса. Сходи на полювання!")
         except: time.sleep(1)
 
 if __name__ == '__main__': main()
-                                   
+    
