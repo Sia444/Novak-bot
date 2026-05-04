@@ -1,149 +1,125 @@
-import telebot
-import os
-import random
-import time
-from datetime import datetime, timedelta
+import requests, time, sqlite3, random, json, os
 from flask import Flask
 from threading import Thread
 
-# ТВІЙ ТОКЕН ВЖЕ ТУТ
-TOKEN = '8738009781:AAFaG6aVZzAEoC_HvwoBry_-gFwNp6fhKU8'
-bot = telebot.TeleBot(TOKEN)
-
 app = Flask('')
-
 @app.route('/')
-def home():
-    return "Бот активний!"
+def home(): return "Новак працює з функцією видалення!"
 
-def run():
-    app.run(host='0.0.0.0', port=8080)
-
+def run(): app.run(host='0.0.0.0', port=8080)
 def keep_alive():
     t = Thread(target=run)
     t.start()
 
-# Тимчасова база даних (працює поки бот запущений)
-db = {}
+TOKEN = '8738009781:AAFaG6aVZzAEoC_HvwoBry_-gFwNp6fhKU8'
+URL = f'https://api.telegram.org/bot{TOKEN}/'
+PHOTO_PATH = 'my_shkets/' 
+TOTAL_PHOTOS = 20
 
-# Список картинок (твоя папка на GitHub)
-images = [f'my_shkets/cat{i}.jpg' for i in range(1, 11)]
+def init_db():
+    conn = sqlite3.connect('forest_novaky.db')
+    conn.execute('''CREATE TABLE IF NOT EXISTS novaky 
+                      (user_id INTEGER PRIMARY KEY, name TEXT, meat INTEGER, 
+                       exp INTEGER, energy INTEGER, last_rest INTEGER, 
+                       is_sleeping INTEGER DEFAULT 0, photo_id INTEGER)''')
+    conn.commit(); conn.close()
 
-@bot.message_handler(commands=['start'])
-def start(message):
-    user_id = str(message.from_user.id)
-    if user_id not in db:
-        db[user_id] = {
-            'name': 'Новак',
-            'meat': 0,
-            'energy': 100,
-            'experience': 0,
-            'status': 'Гуляє',
-            'last_update': time.time(),
-            'last_hunt': None,
-            'image': random.choice(images)
-        }
-    try:
-        bot.send_photo(message.chat.id, open(db[user_id]['image'], 'rb'), 
-                       caption="🐾 Вітаю! Твій новак готовий до пригод.\nПиши 'мій новак'.")
-    except:
-        bot.send_message(message.chat.id, "🐾 Вітаю! Твій новак готовий до пригод.\nПиши 'мій новак'.")
+def get_and_refresh_novak(user_id):
+    conn = sqlite3.connect('forest_novaky.db')
+    cursor = conn.cursor()
+    cursor.execute("SELECT name, meat, exp, energy, last_rest, is_sleeping, photo_id FROM novaky WHERE user_id = ?", (user_id,))
+    row = cursor.fetchone()
+    if not row: return None
+    name, meat, exp, energy, last_rest, is_sleeping, photo_id = row
+    now = int(time.time())
+    speed = 100 if is_sleeping else 300
+    recovered = (now - last_rest) // speed
+    if recovered > 0:
+        energy = min(100, energy + recovered)
+        conn.execute("UPDATE novaky SET energy = ?, last_rest = ? WHERE user_id = ?", (energy, now, user_id))
+        conn.commit()
+    conn.close()
+    return {"name": name, "meat": meat, "exp": exp, "energy": energy, "is_sleeping": is_sleeping, "photo_id": photo_id}
 
-def update_energy(user_id):
-    user = db[user_id]
-    now = time.time()
-    diff = (now - user['last_update']) / 60
-    speed = 3.0 if user['status'] == 'Спить' else 1.0
-    user['energy'] = min(100, user['energy'] + diff * speed)
-    user['last_update'] = now
+def send_msg(chat_id, text):
+    return requests.post(URL + 'sendMessage', data={'chat_id': chat_id, 'text': text, 'parse_mode': 'Markdown'})
 
-@bot.message_handler(func=lambda m: m.text.lower() == 'мій новак')
-def status(message):
-    user_id = str(message.from_user.id)
-    if user_id in db:
-        update_energy(user_id)
-        user = db[user_id]
-        msg = (f"🐱 **{user['name']}**\n"
-               f"📊 Статус: {user['status']}\n"
-               f"🔋 Енергія: {int(user['energy'])}%\n"
-               f"🍖 М'ясо: {user['meat']} кг\n"
-               f"✨ Досвід: {user['experience']}")
+def send_profile(chat_id, n):
+    status = "💤 Спить" if n["is_sleeping"] else "🌲 Гуляє"
+    caption = f"🐈 **Новак:** {n['name']}\n🔋 **Енергія:** {n['energy']}/100 ({status})\n🥩 **Здобич:** {n['meat']} кг\n📈 **Досвід:** {n['exp']}"
+    photo = os.path.join(PHOTO_PATH, f"{n['photo_id']}.jpg")
+    if os.path.exists(photo):
+        with open(photo, 'rb') as f:
+            requests.post(URL + "sendPhoto", data={'chat_id': chat_id, 'caption': caption, 'parse_mode': 'Markdown'}, files={'photo': f})
+    else: send_msg(chat_id, caption)
+
+def main():
+    init_db()
+    keep_alive()
+    last_id = 0
+    while True:
         try:
-            bot.send_photo(message.chat.id, open(user['image'], 'rb'), caption=msg, parse_mode="Markdown")
-        except:
-            bot.send_message(message.chat.id, msg, parse_mode="Markdown")
+            res = requests.get(URL + 'getUpdates', params={'offset': last_id, 'timeout': 10}).json()
+            for update in res.get("result", []):
+                last_id = update["update_id"] + 1
+                if "message" not in update or "text" not in update["message"]: continue
+                msg = update["message"]; text = msg["text"].lower(); cid = msg["chat"]["id"]; uid = msg["from"]["id"]
+                n = get_and_refresh_novak(uid)
+                
+                if text == "/start":
+                    if not n:
+                        conn = sqlite3.connect('forest_novaky.db')
+                        conn.execute("INSERT INTO novaky VALUES (?,?,?,?,?,?,?,?)", (uid,"Новак",0,0,100,int(time.time()),0,random.randint(1, TOTAL_PHOTOS)))
+                        conn.commit(); conn.close()
+                        send_msg(cid, "🌲 Новака знайдено! Напиши 'мій новак'.")
+                    else: send_msg(cid, "🐾 У тебе вже є новак!")
+                
+                elif n:
+                    if "мій новак" in text: send_profile(cid, n)
+                    
+                    elif "видалити новака" in text:
+                        conn = sqlite3.connect('forest_novaky.db')
+                        conn.execute("DELETE FROM novaky WHERE user_id=?", (uid,))
+                        conn.commit(); conn.close()
+                        send_msg(cid, "💨 Твого новака відпущено в ліс... Тепер ти можеш знайти нового через /start.")
 
-@bot.message_handler(func=lambda m: m.text.lower().startswith('назви '))
-def rename(message):
-    user_id = str(message.from_user.id)
-    if user_id in db:
-        new_name = message.text[6:].strip()
-        db[user_id]['name'] = new_name
-        bot.reply_to(message, f"✅ Тепер твого котика звати **{new_name}**!")
+                    elif "полювати" in text:
+                        if n["is_sleeping"]: send_msg(cid, "💤 Твій новак спить! Спочатку розбуди його.")
+                        elif n["energy"] < 20: send_msg(cid, "🪫 Мало енергії (треба хоча б 20).")
+                        else:
+                            meat_found = random.randint(1, 3)
+                            conn = sqlite3.connect('forest_novaky.db')
+                            conn.execute("UPDATE novaky SET meat=meat+?, energy=energy-20, exp=exp+10 WHERE user_id=?", (meat_found, uid))
+                            conn.commit(); conn.close()
+                            send_msg(cid, f"🏹 Полювання вдале! Знайдено м'яса: {meat_found} кг. (-20🔋)")
+                    
+                    elif "спати" in text:
+                        conn = sqlite3.connect('forest_novaky.db')
+                        conn.execute("UPDATE novaky SET is_sleeping=1, last_rest=? WHERE user_id=?", (int(time.time()), uid))
+                        conn.commit(); conn.close()
+                        send_msg(cid, "💤 Новак влігся спати. Енергія відновлюється швидше!")
+                    
+                    elif "прокинутись" in text:
+                        conn = sqlite3.connect('forest_novaky.db')
+                        conn.execute("UPDATE novaky SET is_sleeping=0, last_rest=? WHERE user_id=?", (int(time.time()), uid))
+                        conn.commit(); conn.close()
+                        send_msg(cid, "☀️ Новак прокинувся і готовий до пригод!")
+                    
+                    elif text.startswith("назви "):
+                        new_name = update["message"]["text"][6:].strip()
+                        if new_name:
+                            conn = sqlite3.connect('forest_novaky.db')
+                            conn.execute("UPDATE novaky SET name=? WHERE user_id=?", (new_name, uid))
+                            conn.commit(); conn.close()
+                            send_msg(cid, f"✨ Тепер твого новака звати **{new_name}**!")
+                    
+                    elif "їсти" in text:
+                        if n["meat"] > 0:
+                            conn = sqlite3.connect('forest_novaky.db')
+                            conn.execute("UPDATE novaky SET meat=meat-1, energy=min(100, energy+15) WHERE user_id=?", (uid,))
+                            conn.commit(); conn.close(); send_msg(cid, "🍴 Смачно! +15🔋")
+                        else: send_msg(cid, "🥩 У тебе немає м'яса. Сходи на полювання!")
+        except: time.sleep(1)
 
-@bot.message_handler(func=lambda m: m.text.lower() == 'полювати')
-def hunt(message):
-    user_id = str(message.from_user.id)
-    if user_id not in db: return
-
-    update_energy(user_id)
-    user = db[user_id]
-
-    now = datetime.now()
-    if user.get('last_hunt'):
-        last_hunt_time = datetime.fromisoformat(user['last_hunt'])
-        if now < last_hunt_time + timedelta(hours=1):
-            wait = (last_hunt_time + timedelta(hours=1)) - now
-            mins = int(wait.total_seconds() // 60)
-            bot.reply_to(message, f"⏳ Новак втомлений. Зачекай ще {mins} хв.")
-            return
-
-    if user['energy'] < 20:
-        bot.reply_to(message, "🪫 Мало енергії (треба хоча б 20%).")
-        return
-    
-    if user['status'] == 'Спить':
-        bot.reply_to(message, "💤 Спочатку напиши 'прокинутись'.")
-        return
-
-    loc = random.choice([
-        {"name": "🌲 Густий ліс", "meat": random.randint(1, 3), "exp": 10},
-        {"name": "🏚️ Стара ферма", "meat": random.randint(2, 4), "exp": 15}
-    ])
-    
-    user['meat'] += loc['meat']
-    user['experience'] += loc['exp']
-    user['energy'] -= 20
-    user['last_hunt'] = now.isoformat()
-    
-    bot.reply_to(message, f"🏹 Полювання у **{loc['name']}**!\nЗдобуто: {loc['meat']} кг м'яса! (+{loc['exp']} ✨)")
-
-@bot.message_handler(func=lambda m: m.text.lower() == 'їсти')
-def eat(message):
-    user_id = str(message.from_user.id)
-    if user_id in db:
-        user = db[user_id]
-        if user['meat'] > 0:
-            user['meat'] -= 1
-            user['energy'] = min(100, user['energy'] + 15)
-            bot.reply_to(message, f"🍖 Смачно! Залишилось: {user['meat']} кг")
-        else:
-            bot.reply_to(message, "❌ Немає м'яса! Сходи на полювання.")
-
-@bot.message_handler(func=lambda m: m.text.lower() == 'спати')
-def sleep(message):
-    user_id = str(message.from_user.id)
-    if user_id in db:
-        db[user_id]['status'] = 'Спить'
-        bot.reply_to(message, "💤 Новак ліг спати. Енергія відновлюється швидше!")
-
-@bot.message_handler(func=lambda m: m.text.lower() == 'прокинутись')
-def wake(message):
-    user_id = str(message.from_user.id)
-    if user_id in db:
-        db[user_id]['status'] = 'Гуляє'
-        bot.reply_to(message, "☀️ Новак прокинувся!")
-
-keep_alive()
-bot.polling(none_stop=True)
-            
+if __name__ == '__main__': main()
+                        
