@@ -47,9 +47,8 @@ def get_today_str():
 def generate_daily_quests(user_id):
     today = get_today_str()
     chosen_ids = random.sample([1, 2, 3, 4], 2)
-    q1_id = chosen_ids[0]
+    q1_id, q2_id = chosen_ids[0], chosen_ids[1]
     q1_target = random.randint(1, 4) if q1_id == 1 else (random.randint(1, 3) if q1_id == 3 else 0)
-    q2_id = chosen_ids[1]
     q2_target = random.randint(1, 4) if q2_id == 1 else (random.randint(1, 3) if q2_id == 3 else 0)
     conn = sqlite3.connect(DB_NAME)
     conn.execute('''INSERT OR REPLACE INTO user_quests 
@@ -258,23 +257,25 @@ def main():
                         if not target_n:
                             send_msg(cid, "🐾 Цей гравець ще не знайшов свого новака.")
                             continue
+                        
                         now = int(time.time())
-                        if now < n["last_rel"] + 3600:
-                            left_min = (n["last_rel"] + 3600 - now) // 60
-                            send_msg(cid, f"⏳ Твій новак втомлений. Зачекай ще {left_min} хв для нових стосунків.")
-                            continue
+                        
                         if text == "подружитися":
                             res_rel = update_relation(uid, target_uid, 15)
                             conn = sqlite3.connect(DB_NAME)
                             conn.execute("UPDATE novaky SET last_rel=? WHERE user_id=?", (now, uid))
                             conn.commit(); conn.close()
-                            send_msg(cid, f"🤝 **{n['name']}** виявив дружелюбність до **{target_n['name']}**!\n💞 Прихильність: {res_rel['points']}/100. Status: *{res_rel['status']}*")
+                            send_msg(cid, f"🤝 **{n['name']}** виявив дружелюбність до **{target_n['name']}**!\n"
+                                          f"💞 Прихильність: {res_rel['points']}/100 [*{res_rel['status']}*]")
+                                          
                         elif text == "покусати":
                             res_rel = update_relation(uid, target_uid, -20)
                             conn = sqlite3.connect(DB_NAME)
                             conn.execute("UPDATE novaky SET last_rel=? WHERE user_id=?", (now, uid))
                             conn.commit(); conn.close()
-                            send_msg(cid, f"😾 **{n['name']}** люто покусав **{target_n['name']}**!\n💔 Прихильність: {res_rel['points']}/100. Status: *{res_rel['status']}*")
+                            send_msg(cid, f"😾 **{n['name']}** люто покусав **{target_n['name']}**!\n"
+                                          f"💔 Прихильність: {res_rel['points']}/100 [*{res_rel['status']}*]")
+                                          
                         elif text == "пара":
                             current_rel = get_relation(uid, target_uid)
                             if current_rel["points"] < 60:
@@ -296,7 +297,45 @@ def main():
                         for i, leader in enumerate(leaders, 1):
                             leader_text += f"{i}. {leader[0]} — {leader[1]} ✨\n"
                         send_msg(cid, leader_text)
-                                            # === ІНШІ СТАНДАРТНІ КОМАНДИ ===
+                        
+                    elif text.startswith("назви "):
+                        new_name = update["message"]["text"][6:].strip()
+                        if new_name:
+                            conn = sqlite3.connect(DB_NAME)
+                            conn.execute("UPDATE novaky SET name=? WHERE user_id=?", (new_name, uid))
+                            conn.commit(); conn.close()
+                            send_msg(cid, f"✨ Тепер назва новака: **{new_name}**!")
+                            
+                    elif "спати" in text:
+                        conn = sqlite3.connect(DB_NAME)
+                        conn.execute("UPDATE novaky SET is_sleeping=1, last_rest=? WHERE user_id=?", (int(time.time()), uid))
+                        conn.commit(); conn.close(); send_msg(cid, "💤 Новак ліг спати. Енергія тепер відновлюється швидше!")
+                        
+                    elif "прокинутись" in text:
+                        conn = sqlite3.connect(DB_NAME)
+                        conn.execute("UPDATE novaky SET is_sleeping=0, last_rest=? WHERE user_id=?", (int(time.time()), uid))
+                        conn.commit(); conn.close(); send_msg(cid, "☀️ Новак прокинувся і готовий до пригод!")
+                        
+                    elif "їсти" in text:
+                        if n["meat"] > 0:
+                            conn = sqlite3.connect(DB_NAME)
+                            conn.execute("UPDATE novaky SET meat=meat-1, energy=min(100, energy+15) WHERE user_id=?", (uid,))
+                            conn.commit(); conn.close(); send_msg(cid, "🍴 Смачно пообідав м'ясом! +15 🔋 енергії.")
+                        else: send_msg(cid, "🥩 Немає м'яса! Спочатку сходи на полювання або виконай квест.")
+                        
+                    elif "тренувати" in text:
+                        now = int(time.time())
+                        if now < n["last_train"] + 3600:
+                            send_msg(cid, f"⏳ Новак втомлений. Зачекай {(n['last_train']+3600-now)//60} хв.")
+                        elif n["is_sleeping"]: send_msg(cid, "💤 Новак спить!")
+                        elif n["energy"] < 30: send_msg(cid, "🪫 Мало енергії (треба 30).")
+                        else:
+                            exp_gain = random.randint(20, 40)
+                            conn = sqlite3.connect(DB_NAME)
+                            conn.execute("UPDATE novaky SET exp=exp+?, energy=energy-30, last_train=? WHERE user_id=?", (exp_gain, now, uid))
+                            conn.commit(); conn.close()
+                            send_msg(cid, f"⚔️ Тренування! Досвід: +{exp_gain} ✨. (-30🔋)")
+                            
                     elif text == "стосунки":
                         conn = sqlite3.connect(DB_NAME)
                         cursor = conn.cursor()
@@ -314,40 +353,8 @@ def main():
                                 rel_msg += f"• з **{other_name}**: {r[2]}/100 Балів [*{r[3]}*]\n"
                             send_msg(cid, rel_msg)
                         conn.close()
-
-                    elif text.startswith("назви "):
-                        new_name = update["message"]["text"][6:].strip()
-                        if new_name:
-                            conn = sqlite3.connect(DB_NAME)
-                            conn.execute("UPDATE novaky SET name=? WHERE user_id=?", (new_name, uid))
-                            conn.commit(); conn.close()
-                            send_msg(cid, f"✨ Тепер назва новака: **{new_name}**!")
-
-                    elif "спати" in text:
-                        conn = sqlite3.connect(DB_NAME)
-                        conn.execute("UPDATE novaky SET is_sleeping=1, last_rest=? WHERE user_id=?", (int(time.time()), uid))
-                        conn.commit(); conn.close()
-                        send_msg(cid, "💤 Новак ліг спати. Енергія тепер відновлюється швидше!")
-
-                    elif "прокинутись" in text:
-                        conn = sqlite3.connect(DB_NAME)
-                        conn.execute("UPDATE novaky SET is_sleeping=0, last_rest=? WHERE user_id=?", (int(time.time()), uid))
-                        conn.commit(); conn.close()
-                        send_msg(cid, "☀️ Новак прокинувся і готовий до пригод!")
-
-                    elif "їсти" in text:
-                        if n["meat"] > 0:
-                            conn = sqlite3.connect(DB_NAME)
-                            conn.execute("UPDATE novaky SET meat=meat-1, energy=min(100, energy+15) WHERE user_id=?", (uid,))
-                            conn.commit(); conn.close()
-                            send_msg(cid, "🍴 Смачно пообідав м'ясом! +15 🔋 енергії.")
-                        else:
-                            send_msg(cid, "🥩 Немає м'яса! Сходи спочатку на полювання.")
-
         except Exception as e:
-            print(f"Помилка: {e}")
             time.sleep(1)
 
 if __name__ == '__main__':
     main()
-                        
