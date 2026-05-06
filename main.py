@@ -296,7 +296,25 @@ def main():
                         for i, leader in enumerate(leaders, 1):
                             leader_text += f"{i}. {leader[0]} — {leader[1]} ✨\n"
                         send_msg(cid, leader_text)
-                        
+                                            # === ІНШІ СТАНДАРТНІ КОМАНДИ ===
+                    elif text == "стосунки":
+                        conn = sqlite3.connect(DB_NAME)
+                        cursor = conn.cursor()
+                        cursor.execute("SELECT user_one, user_two, points, status FROM relationships WHERE user_one=? OR user_two=?", (uid, uid))
+                        all_rels = cursor.fetchall()
+                        if not all_rels:
+                            send_msg(cid, "🍃 Твій новак ще ні з ким не перетинався в лісі.")
+                        else:
+                            rel_msg = f"📜 **Стосунки новака {n['name']}:**\n\n"
+                            for r in all_rels:
+                                other_id = r[1] if r[0] == uid else r[0]
+                                cursor.execute("SELECT name FROM novaky WHERE user_id=?", (other_id,))
+                                name_row = cursor.fetchone()
+                                other_name = name_row[0] if name_row else "Невідомий кіт"
+                                rel_msg += f"• з **{other_name}**: {r[2]}/100 Балів [*{r[3]}*]\n"
+                            send_msg(cid, rel_msg)
+                        conn.close()
+
                     elif text.startswith("назви "):
                         new_name = update["message"]["text"][6:].strip()
                         if new_name:
@@ -304,28 +322,32 @@ def main():
                             conn.execute("UPDATE novaky SET name=? WHERE user_id=?", (new_name, uid))
                             conn.commit(); conn.close()
                             send_msg(cid, f"✨ Тепер назва новака: **{new_name}**!")
-                            
+
                     elif "спати" in text:
                         conn = sqlite3.connect(DB_NAME)
                         conn.execute("UPDATE novaky SET is_sleeping=1, last_rest=? WHERE user_id=?", (int(time.time()), uid))
-                        conn.commit(); conn.close(); send_msg(cid, "💤 Новак ліг спати. Енергія тепер відновлюється швидше!")
-                        
+                        conn.commit(); conn.close()
+                        send_msg(cid, "💤 Новак ліг спати. Енергія тепер відновлюється швидше!")
+
                     elif "прокинутись" in text:
                         conn = sqlite3.connect(DB_NAME)
                         conn.execute("UPDATE novaky SET is_sleeping=0, last_rest=? WHERE user_id=?", (int(time.time()), uid))
-                        conn.commit(); conn.close(); send_msg(cid, "☀️ Новак прокинувся і готовий до пригод!")
+                        conn.commit(); conn.close()
+                        send_msg(cid, "☀️ Новак прокинувся і готовий до пригод!")
 
                     elif "їсти" in text:
                         if n["meat"] > 0:
                             conn = sqlite3.connect(DB_NAME)
                             conn.execute("UPDATE novaky SET meat=meat-1, energy=min(100, energy+15) WHERE user_id=?", (uid,))
-                            conn.commit(); conn.close(); send_msg(cid, "🍴 Смачно пообідав м'ясом! +15 🔋 енергії.")
-                        else: send_msg(cid, "🥩 Немає м'яса!")
+                            conn.commit(); conn.close()
+                            send_msg(cid, "🍴 Смачно пообідав м'ясом! +15 🔋 енергії.")
+                        else:
+                            send_msg(cid, "🥩 Немає м'яса! Сходи спочатку на полювання.")
 
         except Exception as e:
-            print(f"Помилка в циклі: {e}")
+            print(f"Помилка: {e}")
             time.sleep(1)
 
 if __name__ == '__main__':
     main()
-    
+                        
