@@ -345,7 +345,7 @@ def main():
                         cursor = conn.cursor()
                         cursor.execute("SELECT user_one, user_two, points, status FROM relationships WHERE user_one=? OR user_two=?", (uid, uid))
                         all_rels = cursor.fetchall()
-                                     if not all_rels:
+                        if not all_rels:
                             send_msg(cid, "🍃 Твій новак ще ні з ким не перетинався в лісі.")
                         else:
                             rel_msg = f"📜 **Стосунки новака {n['name']}:**\n\n"
