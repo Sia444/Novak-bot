@@ -314,10 +314,18 @@ def main():
                         conn = sqlite3.connect(DB_NAME)
                         conn.execute("UPDATE novaky SET is_sleeping=0, last_rest=? WHERE user_id=?", (int(time.time()), uid))
                         conn.commit(); conn.close(); send_msg(cid, "☀️ Новак прокинувся і готовий до пригод!")
-                        
+
                     elif "їсти" in text:
                         if n["meat"] > 0:
                             conn = sqlite3.connect(DB_NAME)
                             conn.execute("UPDATE novaky SET meat=meat-1, energy=min(100, energy+15) WHERE user_id=?", (uid,))
                             conn.commit(); conn.close(); send_msg(cid, "🍴 Смачно пообідав м'ясом! +15 🔋 енергії.")
-                        
+                        else: send_msg(cid, "🥩 Немає м'яса!")
+
+        except Exception as e:
+            print(f"Помилка в циклі: {e}")
+            time.sleep(1)
+
+if __name__ == '__main__':
+    main()
+    
