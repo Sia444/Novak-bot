@@ -345,4 +345,21 @@ def main():
                         cursor = conn.cursor()
                         cursor.execute("SELECT user_one, user_two, points, status FROM relationships WHERE user_one=? OR user_two=?", (uid, uid))
                         all_rels = cursor.fetchall()
-             
+                                     if not all_rels:
+                            send_msg(cid, "🍃 Твій новак ще ні з ким не перетинався в лісі.")
+                        else:
+                            rel_msg = f"📜 **Стосунки новака {n['name']}:**\n\n"
+                            for r in all_rels:
+                                other_id = r[1] if r[0] == uid else r[0]
+                                cursor.execute("SELECT name FROM novaky WHERE user_id=?", (other_id,))
+                                name_row = cursor.fetchone()
+                                other_name = name_row[0] if name_row else "Невідомий кіт"
+                                rel_msg += f"• з **{other_name}**: {r[2]}/100 Балів [*{r[3]}*]\n"
+                            send_msg(cid, rel_msg)
+                        conn.close()
+        except Exception as e:
+            time.sleep(1)
+
+if __name__ == '__main__':
+    main()
+    
