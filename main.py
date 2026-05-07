@@ -192,8 +192,8 @@ def main():
                         send_msg(cid, "🌲 Новака знайдено! Напиши 'мій новак'.")
                     else: 
                         send_msg(cid, "🐾 У тебе вже є новак!")
-                    
-                 elif n:
+                
+                elif n:
                         if "мій новак" in text: 
                         send_profile(cid, n)
                         
