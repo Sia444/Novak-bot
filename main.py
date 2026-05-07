@@ -113,12 +113,21 @@ def main():
                     else: send_msg(cid, "🐾 Ти вже в Клані!")
 
                 elif n:
-                    if txt in ["завдання 1", "завдання 2"]:
+                    # ТОП КЛАНУ
+                    if txt == "топ":
+                        conn = sqlite3.connect(DB_NAME); cursor = conn.cursor()
+                        top_list = cursor.execute("SELECT name, exp FROM novaky ORDER BY exp DESC LIMIT 10").fetchall()
+                        conn.close()
+                        res_top = "🏆 **Топ-10 новачків Клану:**\n"
+                        for i, (name, exp) in enumerate(top_list, 1):
+                            res_top += f"{i}. {name} — {exp} досвіду\n"
+                        send_msg(cid, res_top)
+
+                    elif txt in ["завдання 1", "завдання 2"]:
                         if n["is_sleeping"]: send_msg(cid, "💤 Новак спить!"); continue
                         now = int(time.time())
                         if now - n["last_quest_time"] < 3600:
                             rem = (3600 - (now - n['last_quest_time'])) // 60
-                            # КД КВЕСТІВ (ТВОЯ ПРАВКА)
                             send_msg(cid, f"⏳ Новак стомлений спробуй пізніше. Залишилося {rem} хв"); continue
                         
                         conn = sqlite3.connect(DB_NAME); cursor = conn.cursor()
@@ -151,7 +160,6 @@ def main():
                         else: send_msg(cid, cap)
 
                     elif txt == "видалити новака":
-                        # ВИДАЛЕННЯ (ТВОЯ ПРАВКА)
                         conn = sqlite3.connect(DB_NAME); conn.execute("DELETE FROM novaky WHERE user_id=?", (uid,)); conn.execute("DELETE FROM user_quests WHERE user_id=?", (uid,)); conn.commit(); conn.close()
                         send_msg(cid, "🗑 Твій новак пішов з клану(")
 
@@ -223,7 +231,6 @@ def main():
                         nn = m["text"][6:].strip()
                         if nn:
                             conn = sqlite3.connect(DB_NAME); conn.execute("UPDATE novaky SET name=? WHERE user_id=?", (nn, uid)); conn.commit(); conn.close()
-                            # ЗМІНА ІМЕНІ (ТВОЯ ПРАВКА)
                             send_msg(cid, f"✨ Тепер новака звуть {nn}")
 
                     elif txt == "стосунки":
