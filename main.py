@@ -25,7 +25,7 @@ def keep_alive():
     t.start()
 
 # Конфігурація бота
-TOKEN = '8738009781:AAFaG6aVZzAEoC_HvwoBry_-gFwNp6fhKU8'
+TOKEN = '8738009781:AAGsaGihufi6das9Xk89eUl3rwF-J6GS-xc'
 URL = f'https://api.telegram.org/bot{TOKEN}/'
 PHOTO_PATH = 'my_shkets/' 
 TOTAL_PHOTOS = 20
