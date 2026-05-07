@@ -73,7 +73,8 @@ def update_relation(u1, u2, p_add, status=None):
     conn = sqlite3.connect(DB_NAME); cursor = conn.cursor()
     cursor.execute("SELECT points, status FROM relationships WHERE user_one=? AND user_two=?", (p1, p2))
     row = cursor.fetchone()
-    pts = max(-100, min(100, (row[0] if row else 0) + p_add))
+    old_pts = row[0] if row else 0
+    pts = max(-100, min(100, old_pts + p_add))
     st = status if status else ("Друзі" if pts >= 50 else ("Вороги" if pts <= -30 else "Знайомі"))
     conn.execute("INSERT OR REPLACE INTO relationships VALUES (?,?,?,?)", (p1, p2, pts, st))
     conn.commit(); conn.close()
@@ -118,16 +119,12 @@ def main():
                     if "мій новак" in txt:
                         st = "💤 Спить" if n["is_sleeping"] else "🌲 Гуляє"
                         cap = f"🐈 **Новак:** {n['name']}\n🔋 **Енергія:** {n['energy']}/100 ({st})\n🥩 **М'ясо:** {n['meat']} кг\n📈 **Досвід:** {n['exp']}"
-                        photo = f"{PHOTO_PATH}{n['photo_id']}.jpg"
-                        if os.path.exists(photo):
-                            with open(photo, 'rb') as f: requests.post(URL+"sendPhoto", data={'chat_id':cid,'caption':cap,'parse_mode':'Markdown'}, files={'photo':f})
-                        else: send_msg(cid, cap)
+                        send_msg(cid, cap)
 
                     elif txt == "видалити новака":
-                        conn = sqlite3.connect(DB_NAME)
-                        conn.execute("DELETE FROM novaky WHERE user_id=?", (uid,))
-                        conn.execute("DELETE FROM user_quests WHERE user_id=?", (uid,))
-                        conn.commit(); conn.close(); send_msg(cid, "💥 Твій новак покинув Клан назавжди.")
+                        conn = sqlite3.connect(DB_NAME); conn.execute("DELETE FROM novaky WHERE user_id=?", (uid,))
+                        conn.execute("DELETE FROM user_quests WHERE user_id=?", (uid,)); conn.commit(); conn.close()
+                        send_msg(cid, "💥 Твій новак покинув Клан.")
 
                     elif txt == "завдання":
                         q = get_user_quests(uid)
@@ -135,70 +132,72 @@ def main():
                             info = QUEST_TEMPLATES[qd['id']]
                             desc = info['desc'].format(qd['val']) if qd['val'] > 0 else info['desc']
                             status = "✅" if qd['done'] else "❌"
-                            return f"{desc} {status}"
+                            return f"{desc} {status} (⚡-{info['energy']})"
                         send_msg(cid, f"📜 **Квести:**\n1. {get_q_text(q['q1'])}\n2. {get_q_text(q['q2'])}")
 
                     elif txt in ["завдання 1", "завдання 2"]:
                         if n["is_sleeping"]: send_msg(cid, "💤 Новак спить!"); continue
                         now = int(time.time()); diff = now - n["last_quest_time"]
                         if diff < 3600: send_msg(cid, f"⏳ Зачекай {(3600-diff)//60} хв."); continue
-                        
                         qn_key = "q1" if "1" in txt else "q2"; qs = get_user_quests(uid); qd = qs[qn_key]
                         if qd['done']: send_msg(cid, "✅ Вже виконано!"); continue
                         inf = QUEST_TEMPLATES[qd['id']]
-                        if n['energy'] < inf['energy']: send_msg(cid, "🪫 Мало енергії!"); continue
+                        if n['energy'] < inf['energy']: send_msg(cid, f"🪫 Мало енергії (треба {inf['energy']}⚡)!"); continue
+                        conn = sqlite3.connect(DB_NAME); conn.execute(f"UPDATE user_quests SET {qn_key}_done=1 WHERE user_id=?", (uid,))
+                        meat_plus = qd['val'] if qd['id'] == 1 else 0
+                        conn.execute("UPDATE novaky SET energy=energy-?, exp=exp+?, meat=meat+?, last_quest_time=? WHERE user_id=?", (inf['energy'], inf['exp'], meat_plus, now, uid))
+                        conn.commit(); conn.close(); send_msg(cid, f"🌟 Виконано! -{inf['energy']}⚡, +{inf['exp']} досвіду.")
 
-                        conn = sqlite3.connect(DB_NAME)
-                        conn.execute(f"UPDATE user_quests SET {qn_key}_done=1 WHERE user_id=?", (uid,))
-                        # Якщо квест був на м'ясо, додаємо його в рюкзак теж
-                        meat_plus = qd['val'] if inf['energy'] == 25 and qd['val'] > 0 else 0
-                        conn.execute("UPDATE novaky SET exp=exp+?, energy=energy-?, meat=meat+?, last_quest_time=? WHERE user_id=?", 
-                                   (inf['exp'], inf['energy'], meat_plus, now, uid))
-                        conn.commit(); conn.close(); send_msg(cid, f"🌟 Квест виконано! +{inf['exp']} досвіду.")
+                    elif txt in ["подружитися", "покусати", "пара"]:
+                        if "reply_to_message" not in m: send_msg(cid, "⚠️ Відповідай на повідомлення іншого гравця!"); continue
+                        tid = m["reply_to_message"]["from"]["id"]; tn = get_novak(tid)
+                        if not tn or tid == uid: continue
+                        if txt == "подружитися":
+                            p = update_relation(uid, tid, 15)
+                            send_msg(cid, f"🤝 {n['name']} та {tn['name']} стали ближче! (+15 балів, разом: {p})")
+                        elif txt == "покусати":
+                            p = update_relation(uid, tid, -20)
+                            send_msg(cid, f"😾 {n['name']} покусав {tn['name']}! (-20 балів, разом: {p})")
+                        elif txt == "пара":
+                            p1, p2 = min(uid, tid), max(uid, tid)
+                            conn = sqlite3.connect(DB_NAME); cursor = conn.cursor()
+                            cursor.execute("SELECT points FROM relationships WHERE user_one=? AND user_two=?", (p1, p2))
+                            row = cursor.fetchone()
+                            if row and row[0] >= 60: update_relation(uid, tid, 10, "Пара"); send_msg(cid, "❤️ Ви тепер пара!")
+                            else: send_msg(cid, f"❌ Мало прихильності (треба 60, а у вас {row[0] if row else 0}).")
+
+                    elif txt == "стосунки":
+                        conn = sqlite3.connect(DB_NAME); cursor = conn.cursor()
+                        rels = cursor.execute("SELECT user_one, user_two, points, status FROM relationships WHERE user_one=? OR user_two=?", (uid, uid)).fetchall()
+                        if not rels: send_msg(cid, "🍃 У тебе ще немає жодних зв'язків."); continue
+                        res = "📜 **Твої стосунки:**\n"
+                        for r in rels:
+                            oid = r[1] if r[0] == uid else r[0]
+                            oname = cursor.execute("SELECT name FROM novaky WHERE user_id=?", (oid,)).fetchone()
+                            res += f"• {oname[0] if oname else 'Кіт'}: {r[2]}б. ({r[3]})\n"
+                        conn.close(); send_msg(cid, res)
 
                     elif "полювати" in txt:
-                        if n['is_sleeping']: send_msg(cid, "💤 Новак спить!"); continue
-                        if n['energy'] < 25: send_msg(cid, "🪫 Мало енергії!"); continue
-                        m_g = random.randint(1, 3); e_g = random.randint(10, 20)
-                        conn = sqlite3.connect(DB_NAME); conn.execute("UPDATE novaky SET meat=meat+?, energy=energy-25, exp=exp+? WHERE user_id=?", (m_g, uid, e_g, uid))
-                        conn.commit(); conn.close(); send_msg(cid, f"🏹 Впольовано {m_g} кг м'яса! +{e_g} досвіду.")
+                        if n['energy'] < 25: send_msg(cid, "🪫 Треба 25⚡"); continue
+                        m_g, e_g = random.randint(1, 3), random.randint(10, 20)
+                        conn = sqlite3.connect(DB_NAME); conn.execute("UPDATE novaky SET meat=meat+?, energy=energy-25, exp=exp+? WHERE user_id=?", (m_g, e_g, uid))
+                        conn.commit(); conn.close(); send_msg(cid, f"🏹 +{m_g} кг м'яса, +{e_g} досвіду.")
 
                     elif "їсти" in txt:
                         if n['meat'] > 0:
                             conn = sqlite3.connect(DB_NAME); conn.execute("UPDATE novaky SET meat=meat-1, energy=min(100, energy+20) WHERE user_id=?", (uid,))
-                            conn.commit(); conn.close(); send_msg(cid, "🍴 Смачно! +20 ⚡ енергії.")
-                        else: send_msg(cid, "🥩 У тебе немає м'яса. Сходи на полювання!")
+                            conn.commit(); conn.close(); send_msg(cid, "🍴 +20 ⚡ енергії.")
+                        else: send_msg(cid, "🥩 Немає м'яса!")
 
                     elif "спати" in txt:
                         conn = sqlite3.connect(DB_NAME); conn.execute("UPDATE novaky SET is_sleeping=1, last_rest=? WHERE user_id=?", (int(time.time()), uid))
-                        conn.commit(); conn.close(); send_msg(cid, "💤 Новак згорнувся клубочком і заснув.")
+                        conn.commit(); conn.close(); send_msg(cid, "💤 Заснув.")
 
                     elif "прокинутись" in txt:
                         conn = sqlite3.connect(DB_NAME); conn.execute("UPDATE novaky SET is_sleeping=0 WHERE user_id=?", (uid,))
-                        conn.commit(); conn.close(); send_msg(cid, "☀️ Новак солодко потягнувся і прокинувся!")
-
-                    elif txt.startswith("назви "):
-                        nn = m["text"][6:].strip()
-                        if nn:
-                            conn = sqlite3.connect(DB_NAME); conn.execute("UPDATE novaky SET name=? WHERE user_id=?", (nn, uid))
-                            conn.commit(); conn.close(); send_msg(cid, f"✨ Тепер тебе звуть {nn}")
-
-                    elif txt in ["подружитися", "покусати", "пара"]:
-                        if "reply_to_message" not in m: send_msg(cid, "⚠️ Відповідай на повідомлення іншого гравця!"); continue
-                        tid = m["reply_to_message"]["from"]["id"]
-                        if tid == uid: continue
-                        tn = get_novak(tid)
-                        if not tn: continue
-                        if txt == "подружитися": update_relation(uid, tid, 15); send_msg(cid, f"🤝 Дружба зміцніла!")
-                        elif txt == "покусати": update_relation(uid, tid, -20); send_msg(cid, f"😾 Бійка!")
-                        elif txt == "пара":
-                            conn = sqlite3.connect(DB_NAME); cursor = conn.cursor()
-                            cursor.execute("SELECT points FROM relationships WHERE (user_one=? AND user_two=?) OR (user_one=? AND user_two=?)", (min(uid,tid), max(uid,tid), min(uid,tid), max(uid,tid)))
-                            row = cursor.fetchone()
-                            if row and row[0] >= 60: update_relation(uid, tid, 10, "Пара"); send_msg(cid, "❤️ Ви тепер пара!")
-                            else: send_msg(cid, "❌ Мало прихильності (треба 60).")
+                        conn.commit(); conn.close(); send_msg(cid, "☀️ Прокинувся!")
 
         except Exception as e: time.sleep(2)
 
 if __name__ == '__main__': main()
-    
+                        
