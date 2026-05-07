@@ -193,11 +193,11 @@ def main():
                     else: 
                         send_msg(cid, "🐾 У тебе вже є новак!")
                     
-                elif n:
-                    if "мій новак" in text: 
+                 elif n:
+                        if "мій новак" in text: 
                         send_profile(cid, n)
                         
-                    elif text == "завдання":
+                elif text == "завдання":
                         quests = get_user_quests(uid)
                         def format_quest(q, num):
                             inf = QUEST_TYPES[q["id"]]
@@ -211,7 +211,7 @@ def main():
                         msg_text += "💡 Щоб виконати завдання, напиши: `завдання 1` або `завдання 2`"
                         send_msg(cid, msg_text)
                         
-                    elif text in ["завдання 1", "завдання 2"]:
+                 elif text in ["завдання 1", "завдання 2"]:
                         if n["is_sleeping"]:
                             send_msg(cid, "💤 Кіт спить! Розбуди його спочатку.")
                             continue
