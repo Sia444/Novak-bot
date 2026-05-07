@@ -157,6 +157,7 @@ def main():
                     elif txt == "пара":
                         if "reply_to_message" not in m: send_msg(cid, "⚠️ Відповідай на повідомлення того, з ким хочеш бути парою!"); continue
                         tid = m["reply_to_message"]["from"]["id"]
+                        if tid == uid: send_msg(cid, "❌ Не можна стати парою самому собі!"); continue
                         p1, p2 = min(uid, tid), max(uid, tid)
                         conn = sqlite3.connect(DB_NAME)
                         row = conn.execute("SELECT points FROM relationships WHERE user_one=? AND user_two=?", (p1, p2)).fetchone()
@@ -193,7 +194,8 @@ def main():
                         if n["is_sleeping"]: send_msg(cid, "💤 Новак спить!"); continue
                         now = int(time.time())
                         if now - n["last_quest_time"] < 3600:
-                            send_msg(cid, f"⏳ Новак зайнятий, спробуй пізніше. Залишилося: {(3600-(now-n['last_quest_time']))//60} хв"); continue
+                            rem = (3600-(now-n['last_quest_time']))//60
+                            send_msg(cid, f"⏳ Новак зайнятий, спробуй пізніше. Залишилося: {rem} хв"); continue
                         conn = sqlite3.connect(DB_NAME); cursor = conn.cursor()
                         cursor.execute("SELECT q1_id, q1_done, q2_id, q2_done FROM user_quests WHERE user_id=?", (uid,))
                         q_data = cursor.fetchone()
@@ -227,4 +229,4 @@ def main():
         except Exception as e: print(f"⚠️ Помилка: {e}"); time.sleep(2)
 
 if __name__ == '__main__': main()
-                        
+                            
