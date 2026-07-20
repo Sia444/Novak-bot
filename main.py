@@ -19,7 +19,7 @@ def keep_alive():
     Thread(target=run).start()
 
 # --- КОНФІГУРАЦІЯ ---
-TOKEN = '8738009781:AAGwZQBPLEMMwF5Tr34CP1HUl34JP0C1ZDk'
+TOKEN = '8738009781:AAF9NL2AcYJGDa5kXwKHt43SMMZahhURclQ'
 URL = f'https://api.telegram.org/bot{TOKEN}/'
 DB_NAME = 'forest_novaky_final.db'
 PHOTO_PATH = 'my_shkets/' 
